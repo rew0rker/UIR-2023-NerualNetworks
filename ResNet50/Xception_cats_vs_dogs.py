@@ -3,6 +3,18 @@ import tensorflow_datasets as tfds
 from tensorflow import keras
 # tfds.disable_progress_bar()
 
+# подключение CUDA
+import os
+
+def selectGpuById(id):
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "{}".format(id)
+
+# проверка используемых девайсов
+from tensorflow.python.client import device_lib
+print(device_lib.list_local_devices())
+print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
+
 train_ds, validation_ds, test_ds = tfds.load(
     "cats_vs_dogs",
     # Зарезервируйте 10% для проверки и 10% для тестирования
@@ -54,17 +66,17 @@ for images, labels in train_ds.take(1):
 
     plt.show()
 
-
+# инициализируем базовую предобученную на imagenet модель нейросети Xception
 base_model = keras.applications.Xception(
-    weights="imagenet",  # Загрузите веса, предварительно обученные в ImageNet.
+    weights="imagenet",  # Загружаем веса, предварительно обученные в ImageNet.
     input_shape=(150, 150, 3),
     include_top=False,
-)  # Не включайте классификатор ImageNet в верхнем слое.
+)  # Не включаем классификатор ImageNet в верхнем слое.
 
-# Заморозить base_model
+# Замораживаем нашу базовую модель
 base_model.trainable = False
 
-# Создать новую модель(новый верхний выходной слой)
+# Создаем новую модель(новый верхний выходной слой)
 inputs = keras.Input(shape=(150, 150, 3))
 x = data_augmentation(inputs)  # добавляем рандомную аугментацию данных
 
@@ -83,3 +95,37 @@ outputs = keras.layers.Dense(1)(x)  # создаем выходной слой(d
 model = keras.Model(inputs, outputs)
 
 model.summary()  # резюмирование модели(вывод конфигурации)
+
+# далее приступаем к обучению верхнего слоя
+model.compile(
+    optimizer=keras.optimizers.Adam(),
+    loss=keras.losses.BinaryCrossentropy(from_logits=True),
+    metrics=[keras.metrics.BinaryAccuracy()],
+)
+epochs = 10  # test various variations
+model.fit(train_ds, epochs=epochs, validation_data=validation_ds)
+
+# Разморозить base_model. Обратите внимание, что он продолжает работать в режиме вывода
+# так как мы передали `training=False` при вызове. Это значит, что
+# слои batchnorm не будут обновлять свою пакетную статистику.
+# Это предотвратит отмену всех тренировочных слоев слоями пакетной нормы.
+# мы сделали до сих пор.
+base_model.trainable = True
+model.summary()
+
+model.compile(
+    optimizer=keras.optimizers.Adam(1e-5),  # Low learning rate
+    loss=keras.losses.BinaryCrossentropy(from_logits=True),
+    metrics=[keras.metrics.BinaryAccuracy()],
+)
+
+epochs = 10
+model.fit(train_ds, epochs=epochs, validation_data=validation_ds)
+
+
+hist = model.fit.history
+print(f"history: --", hist)
+acc = model.fit.history["accuracy"]
+print(f"acc: --", acc)
+loss = model.fit.history["loss"]
+print(f"loss: --", loss)
