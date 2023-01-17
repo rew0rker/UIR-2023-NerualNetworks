@@ -53,3 +53,33 @@ for images, labels in train_ds.take(1):
         plt.axis("off")
 
     plt.show()
+
+
+base_model = keras.applications.Xception(
+    weights="imagenet",  # Загрузите веса, предварительно обученные в ImageNet.
+    input_shape=(150, 150, 3),
+    include_top=False,
+)  # Не включайте классификатор ImageNet в верхнем слое.
+
+# Заморозить base_model
+base_model.trainable = False
+
+# Создать новую модель(новый верхний выходной слой)
+inputs = keras.Input(shape=(150, 150, 3))
+x = data_augmentation(inputs)  # добавляем рандомную аугментацию данных
+
+# Предварительно обученные веса Xception требуют, чтобы ввод был масштабирован
+# от (0, 255) до диапазона (-1., +1.), слой масштабирования
+# выходные данные: `(input * scale) + offset`
+scale_layer = keras.layers.Rescaling(scale=1 / 127.5, offset=-1)
+x = scale_layer(x)
+
+# Базовая модель содержит слои пакетной нормы. Мы хотим, чтобы они оставались в режиме вывода
+# когда мы разморозим базовую модель для тонкой настройки, поэтому мы убедимся, что base_model здесь работает в режиме вывода.
+x = base_model(x, training=False)
+x = keras.layers.GlobalAveragePooling2D()(x)
+x = keras.layers.Dropout(0.2)(x)  # Регуляризация с отсевом
+outputs = keras.layers.Dense(1)(x)  # создаем выходной слой(dense -просто распростарненный слой)
+model = keras.Model(inputs, outputs)
+
+model.summary()  # резюмирование модели(вывод конфигурации)
